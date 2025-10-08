@@ -34,6 +34,10 @@ class SegmentFacialParts:
         self.output_dir = "segmented_images"
 
     def crop_part(self, image, landmarks, indices, padding=10):
+        """
+        Segments key facial regions such as eyes, forehead, and full face 
+        from an input image using MediaPipe landmarks.
+        """
         h, w, _ = image.shape
         points = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in indices]
         x_coords, y_coords = zip(*points)
