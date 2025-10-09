@@ -7,12 +7,10 @@ import mediapipe as mp
 import numpy as np
 import glob
 
-
 class SegmentFacialParts:
     """
     Class contains the methods to segment the facial parts face, eyes, forehead.
     """
-
     LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154, 155]
     RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 374, 381]
     FACE = list(range(0, 468))
@@ -131,53 +129,53 @@ class SegmentFacialParts:
         eye_padding = max(10, min(30, eye_padding))  # Between 10 and 30 pixels
 
         return self.crop_part(image, landmarks, eye_indices, padding=eye_padding)
-    
+
     def process_folder(self, folder_path):
         """
         Process all images in a folder
         """
         print(f"=== Processing Folder: {folder_path} ===")
-        
+
         # Check if folder exists
         if not os.path.exists(folder_path):
             print(f"Folder not found: {folder_path}")
             return
-        
+
         # Get all image files
         image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tiff', '*.tif']
         image_files = []
-        
+
         for extension in image_extensions:
             image_files.extend(glob.glob(os.path.join(folder_path, extension)))
             image_files.extend(glob.glob(os.path.join(folder_path, extension.upper())))
-        
+
         if not image_files:
             print(f"No image files found in {folder_path}")
             return
-        
+
         print(f"Found {len(image_files)} image(s) to process")
-        
+
         # Create main output directory
         os.makedirs(self.output_dir, exist_ok=True)
-        
+
         total_faces = 0
         processed_images = 0
-        
+
         # Process each image
         for image_path in image_files:
             image_name = os.path.basename(image_path)
             faces_processed = self.process_single_image(image_path, image_name)
-            
+
             if faces_processed > 0:
                 processed_images += 1
                 total_faces += faces_processed
-        
+
         # Summary
         print(f"\n=== Processing Complete ===")
         print(f"Processed {processed_images}/{len(image_files)} images")
         print(f"Total faces processed: {total_faces}")
         print(f"Output directory: {self.output_dir}")
-        
+
         if processed_images == 0:
             print("No faces were detected in any images")
             print("Suggestions:")
@@ -190,63 +188,67 @@ class SegmentFacialParts:
         Process a single image and extract facial features
         """
         print(f"\n=== Processing: {image_name} ===")
-        
+
         # Load image
         image = cv2.imread(image_path)
         if image is None:
             print(f"Could not load image: {image_path}")
             return 0
-        
+
         print(f"  Image size: {image.shape}")
-        
+
         # Convert to RGB for MediaPipe
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.face_mesh.process(rgb_image)
-        
+
         if not results.multi_face_landmarks:
             print(f"No faces detected in {image_name}")
             return 0
-        
+
         face_count = len(results.multi_face_landmarks)
         print(f"Detected {face_count} face(s)")
-        
+
         # Create image-specific output directory
         image_output_dir = os.path.join(self.output_dir, os.path.splitext(image_name)[0])
         os.makedirs(image_output_dir, exist_ok=True)
-        
+
         successful_faces = 0
-        
+
         # Process each detected face
         for count, face_landmarks in enumerate(results.multi_face_landmarks):
             print(f"    Processing face {count + 1}/{face_count}...")
-            
+
             try:
                 landmarks = face_landmarks.landmark
-                
+
                 # Calculate face scale for debugging
                 face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
                 print(f"      Face scale: {face_scale:.3f}, Size: {face_width}x{face_height}")
-                
+
                 # Extract facial parts
                 face_crop = self.crop_part(image, landmarks, self.FACE, padding=20)
                 left_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.LEFT_EYE)
                 right_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.RIGHT_EYE)
                 forehead_crop = self.crop_forehead_adaptive(image, landmarks, self.FOREHEAD)
-                
+
                 # Save with unique filenames
-                cv2.imwrite(os.path.join(image_output_dir, f"face_{count:02d}.png"), face_crop)
-                cv2.imwrite(os.path.join(image_output_dir, f"left_eye_{count:02d}.png"), left_eye_crop)
-                cv2.imwrite(os.path.join(image_output_dir, f"right_eye_{count:02d}.png"), right_eye_crop)
-                cv2.imwrite(os.path.join(image_output_dir, f"forehead_{count:02d}.png"), forehead_crop)
-                
+                cv2.imwrite(os.path.join(image_output_dir,
+                                         f"face_{count:02d}.png"), face_crop)
+                cv2.imwrite(os.path.join(image_output_dir,
+                                         f"left_eye_{count:02d}.png"), left_eye_crop)
+                cv2.imwrite(os.path.join(image_output_dir,
+                                         f"right_eye_{count:02d}.png"), right_eye_crop)
+                cv2.imwrite(os.path.join(image_output_dir,
+                                         f"forehead_{count:02d}.png"), forehead_crop)
+
                 print(f"      ✅ Face {count + 1} processed successfully")
                 successful_faces += 1
-                
-            except Exception as e:
+
+            except ValueError as e:
                 print(f"Error processing face {count + 1}: {str(e)}")
                 continue
-        
+
         print(f"Output saved to: {image_output_dir}")
         print(f"Successfully processed: {successful_faces}/{face_count} faces")
-        
+
         return successful_faces
