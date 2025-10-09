@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QPixmap, QPainter, QColor
 from PyQt5.QtCore import Qt, QMargins
-from media_pipe.adaptive_forehead_extraction import SegmentFacialParts
+from media_pipe.segment_facial_parts import SegmentFacialParts
 
 class AnnotationViewer(QWidget):
     """
