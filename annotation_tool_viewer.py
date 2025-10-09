@@ -6,11 +6,8 @@ import sys
 import mediapipe as mp
 
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QPushButton, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QScrollArea
+    QApplication, QWidget, QPushButton, QFileDialog, QHBoxLayout
 )
-from PyQt5.QtGui import QPixmap, QPainter, QColor
-from PyQt5.QtCore import Qt, QMargins
 from media_pipe.segment_facial_parts import SegmentFacialParts
 
 class AnnotationViewer(QWidget):
