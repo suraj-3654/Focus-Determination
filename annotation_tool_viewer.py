@@ -35,6 +35,7 @@ class AnnotationViewer(QWidget):
         self.setStyleSheet("background-color: #e0f7fa;")
         self.input_folder_path = None
         self.file_list = []
+        self.obj_segment_factil_part = SegmentFacialParts.get_instance()
 
         # Creating custom stylesheet for QPushButton
         button_style = """
@@ -104,14 +105,14 @@ class AnnotationViewer(QWidget):
             self.input_folder_path = None
             self.file_list = []
             self.start_annotation_button.setEnabled(False)
+            self.obj_segment_factil_part.clear_data()
             print("Folder contents cleared.")
 
     def start_annotation(self):
         """
         function to start the annotation with selected images
         """
-        obj_segment_facial_parts = SegmentFacialParts()
-        obj_segment_facial_parts.process_folder(self.input_folder_path)
+        self.obj_segment_factil_part.process_folder(self.input_folder_path)
 
 
 if __name__ == "__main__":
