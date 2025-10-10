@@ -6,16 +6,28 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import glob
+import shutil
 
 class SegmentFacialParts:
     """
     Class contains the methods to segment the facial parts face, eyes, forehead.
     """
+    _instance = None
+
     LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154, 155]
     RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 374, 381]
     FACE = list(range(0, 468))
     FOREHEAD = [10, 151, 9, 8, 107, 55, 65, 52, 53, 46, 70, 63, 105,
                 66, 69, 108, 104, 103, 67, 109]
+    
+    @classmethod
+    def get_instance(cls):
+        """
+        Singleton class to provide the instance.
+        """
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def __init__(self):
         """
@@ -252,3 +264,12 @@ class SegmentFacialParts:
         print(f"Successfully processed: {successful_faces}/{face_count} faces")
 
         return successful_faces
+
+    def clear_data(self):
+        """This method deletes the segmented_image folder."""
+        if self.output_dir and os.path.exists(self.output_dir):
+            shutil.rmtree(self.output_dir)
+            print("Segmented output deleted.")
+        else:
+            print("No segmented output found.")
+
