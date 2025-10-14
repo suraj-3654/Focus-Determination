@@ -77,8 +77,8 @@ class AnnotationViewer(QWidget):
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(self.select_folder)
-        top_bar.addWidget(self.clear_folder)
         top_bar.addWidget(self.start_annotation_button)
+        top_bar.addWidget(self.clear_folder)
         self.start_annotation_button.setEnabled(False)
 
         self.setLayout(top_bar)

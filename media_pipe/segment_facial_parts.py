@@ -2,11 +2,15 @@
 Imports for the segmentation class
 """
 import os
+import shutil
+import glob
 import cv2
 import mediapipe as mp
-import numpy as np
-import glob
-import shutil
+from PIL import Image
+
+from focus_model.focus_model import FocusModel
+from focus_model.focus_model_onnx import FocusModelOnnx
+
 
 class SegmentFacialParts:
     """
@@ -19,7 +23,7 @@ class SegmentFacialParts:
     FACE = list(range(0, 468))
     FOREHEAD = [10, 151, 9, 8, 107, 55, 65, 52, 53, 46, 70, 63, 105,
                 66, 69, 108, 104, 103, 67, 109]
-    
+
     @classmethod
     def get_instance(cls):
         """
@@ -40,8 +44,11 @@ class SegmentFacialParts:
 	    refine_landmarks=True,
 	    min_detection_confidence=0.3,  # Lower threshold
 	    min_tracking_confidence=0.3
-	)
+	    )
         self.output_dir = "segmented_images"
+        self.obj_foucs_model = FocusModel()
+        self.obj_foucs_model_onnx = FocusModelOnnx()
+
 
     def crop_part(self, image, landmarks, indices, padding=10):
         """
@@ -54,6 +61,47 @@ class SegmentFacialParts:
         x_min, x_max = max(min(x_coords) - padding, 0), min(max(x_coords) + padding, w)
         y_min, y_max = max(min(y_coords) - padding, 0), min(max(y_coords) + padding, h)
         return image[y_min:y_max, x_min:x_max]
+
+    def crop_head_adaptive(self, image, landmarks, face_indices):
+        """
+        Extract the entire head area (1.3x face height) as per requirements
+        """
+        h, w, _ = image.shape
+
+        # Calculate face scale and dimensions
+        face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
+
+        # Get face bounding box from all face landmarks
+        face_points = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in face_indices]
+        face_x_coords, face_y_coords = zip(*face_points)
+
+        # Calculate face center and dimensions
+        face_center_x = (min(face_x_coords) + max(face_x_coords)) // 2
+        face_center_y = (min(face_y_coords) + max(face_y_coords)) // 2
+
+        # Calculate head dimensions (1.3x face height as per requirements)
+        head_height = int(face_height * 1.3)
+        head_width = int(face_width * 1.1)  # Slightly wider than face for better head coverage
+
+        # Calculate adaptive padding based on face scale
+        base_padding = int(face_width * 0.05)  # 5% of face width
+        min_padding = 5
+        max_padding = 25
+        adaptive_padding = max(min_padding, min(max_padding, base_padding))
+
+        # Calculate head boundaries centered on face center
+        head_left = max(face_center_x - head_width // 2 - adaptive_padding, 0)
+        head_right = min(face_center_x + head_width // 2 + adaptive_padding, w)
+        head_top = max(face_center_y - head_height // 2 - adaptive_padding, 0)
+        head_bottom = min(face_center_y + head_height // 2 + adaptive_padding, h)
+
+        # Ensure valid dimensions
+        if head_bottom <= head_top:
+            head_bottom = head_top + head_height
+        if head_right <= head_left:
+            head_right = head_left + head_width
+
+        return image[head_top:head_bottom, head_left:head_right]
 
     def get_face_scale(self, landmarks, image_shape):
         """
@@ -73,6 +121,56 @@ class SegmentFacialParts:
         height_scale = face_height / h
 
         return min(width_scale, height_scale), face_width, face_height
+
+    def crop_face_adaptive(self, image, landmarks, face_indices):
+        """
+        Extract face information as per requirements:
+        - Center coordinates
+        - Circumscribing rectangle (half face size from center in all directions)
+        """
+        h, w, _ = image.shape
+
+        # Calculate face scale and dimensions
+        face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
+
+        # Get face bounding box from all face landmarks
+        face_points = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in face_indices]
+        face_x_coords, face_y_coords = zip(*face_points)
+
+        # Calculate face center coordinates (as per requirements)
+        face_center_x = (min(face_x_coords) + max(face_x_coords)) // 2
+        face_center_y = (min(face_y_coords) + max(face_y_coords)) // 2
+
+        # Calculate circumscribing rectangle (half face size from center)
+        half_face_width = face_width // 2
+        half_face_height = face_height // 2
+
+        # Calculate rectangle boundaries
+        rect_left = max(face_center_x - half_face_width, 0)
+        rect_right = min(face_center_x + half_face_width, w)
+        rect_top = max(face_center_y - half_face_height, 0)
+        rect_bottom = min(face_center_y + half_face_height, h)
+
+        # Ensure valid dimensions
+        if rect_bottom <= rect_top:
+            rect_bottom = rect_top + face_height
+        if rect_right <= rect_left:
+            rect_right = rect_left + face_width
+
+        # Store face information for potential future use
+        face_info = {
+            'center_x': face_center_x,
+            'center_y': face_center_y,
+            'width': face_width,
+            'height': face_height,
+            'rect_left': rect_left,
+            'rect_top': rect_top,
+            'rect_right': rect_right,
+            'rect_bottom': rect_bottom
+        }
+
+        return image[rect_top:rect_bottom, rect_left:rect_right], face_info
+
 
     def crop_forehead_adaptive(self, image, landmarks, indices):
         """
@@ -109,7 +207,7 @@ class SegmentFacialParts:
 
         # Calculate adaptive extensions based on face scale - increased for complete forehead
         top_extension = int(face_height * 0.25)  # 25% of face height - more hair coverage
-        bottom_extension = int(face_height * 0.25) # 25% of face height-extend well into eyebrow area
+        bottom_extension = int(face_height * 0.25) #25% of face height-extend well into eyebrow area
         side_extension = int(face_width * 0.3)  # 30% of face width - more side coverage
         right_extension = int(face_width * 0.4)  # 40% of face width - more right side coverage
 
@@ -154,12 +252,14 @@ class SegmentFacialParts:
             return
 
         # Get all image files
-        image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tiff', '*.tif']
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
         image_files = []
 
-        for extension in image_extensions:
-            image_files.extend(glob.glob(os.path.join(folder_path, extension)))
-            image_files.extend(glob.glob(os.path.join(folder_path, extension.upper())))
+        for file in glob.iglob(os.path.join(folder_path, '*')):
+            ext = os.path.splitext(file)[1].lower()
+            if ext in image_extensions:
+                image_files.append(file)
+
 
         if not image_files:
             print(f"No image files found in {folder_path}")
@@ -238,20 +338,53 @@ class SegmentFacialParts:
                 print(f"      Face scale: {face_scale:.3f}, Size: {face_width}x{face_height}")
 
                 # Extract facial parts
-                face_crop = self.crop_part(image, landmarks, self.FACE, padding=20)
+                face_crop, face_info = self.crop_face_adaptive(image, landmarks, self.FACE)
+                face_image = Image.fromarray(face_crop)
+                face_image.save("temp_face.png")
+                # face_score = self.obj_foucs_model.predict_score("temp_face.png")
+                face_score = self.obj_foucs_model_onnx.make_prediction("temp_face.png")
+                print(f"face_score:{face_score}, round:{face_score:.2f}")
+
                 left_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.LEFT_EYE)
+                left_eye_image = Image.fromarray(left_eye_crop)
+                left_eye_image.save("temp_le.png")
+                # left_eye_score = self.obj_foucs_model.predict_score("temp_le.png")
+                left_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_le.png")
+                print(f"left_eye_score:{left_eye_score}, round:{left_eye_score:.2f}")
+
                 right_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.RIGHT_EYE)
-                forehead_crop = self.crop_forehead_adaptive(image, landmarks, self.FOREHEAD)
+                right_eye_image = Image.fromarray(right_eye_crop)
+                right_eye_image.save("temp_re.png")
+                # right_eye_score = self.obj_foucs_model.predict_score("temp_re.png")
+                right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
+                print(f"right_eye_score:{right_eye_score}, round:{right_eye_score:.2f}")
+
+                head_crop = self.crop_head_adaptive(image, landmarks, self.FACE)
+                head_image = Image.fromarray(head_crop)
+                head_image.save("temp_head.png")
+                # head_score = self.obj_foucs_model.predict_score("temp_head.png")
+                head_score = self.obj_foucs_model_onnx.make_prediction("temp_head.png")
+                print(f"head_score:{head_score}, round:{head_score:.2f}")
+
+                # forehead_crop = self.crop_forehead_adaptive(image, landmarks, self.FOREHEAD)
+                # Print face information as per requirements
+                print(f"Face Center: ({face_info['center_x']}, {face_info['center_y']})")
+                print(f"Face Size: {face_info['width']}x{face_info['height']}")
+                print(f"Circumscribing Rectangle:({face_info['rect_left']},{face_info['rect_top']})"
+                f"to ({face_info['rect_right']}, {face_info['rect_bottom']})"
+                 )
 
                 # Save with unique filenames
                 cv2.imwrite(os.path.join(image_output_dir,
-                                         f"face_{count:02d}.png"), face_crop)
+                        f"{face_score:.2f}_face_{count:02d}.png"), face_crop)
                 cv2.imwrite(os.path.join(image_output_dir,
-                                         f"left_eye_{count:02d}.png"), left_eye_crop)
+                        f"{left_eye_score:.2f}_left_eye_{count:02d}.png"), left_eye_crop)
                 cv2.imwrite(os.path.join(image_output_dir,
-                                         f"right_eye_{count:02d}.png"), right_eye_crop)
+                        f"{right_eye_score:.2f}_right_eye_{count:02d}.png"), right_eye_crop)
+                # cv2.imwrite(os.path.join(image_output_dir,
+                #                          f"forehead_{count:02d}.png"), forehead_crop)
                 cv2.imwrite(os.path.join(image_output_dir,
-                                         f"forehead_{count:02d}.png"), forehead_crop)
+                        f"{head_score:.2f}_head_{count:02d}.png"), head_crop)
 
                 print(f"      ✅ Face {count + 1} processed successfully")
                 successful_faces += 1
@@ -272,4 +405,3 @@ class SegmentFacialParts:
             print("Segmented output deleted.")
         else:
             print("No segmented output found.")
-
