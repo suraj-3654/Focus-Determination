@@ -10,6 +10,7 @@ from PIL import Image
 
 from focus_model.focus_model import FocusModel
 from focus_model.focus_model_onnx import FocusModelOnnx
+from utility.eye_segmentation_utils import EyeCalculator
 
 
 class SegmentFacialParts:
@@ -48,6 +49,7 @@ class SegmentFacialParts:
         self.output_dir = "segmented_images"
         self.obj_foucs_model = FocusModel()
         self.obj_foucs_model_onnx = FocusModelOnnx()
+        self.obj_eye_calculator = EyeCalculator()
 
 
     def crop_part(self, image, landmarks, indices, padding=10):
@@ -325,77 +327,59 @@ class SegmentFacialParts:
         os.makedirs(image_output_dir, exist_ok=True)
 
         successful_faces = 0
-
-        # Process each detected face
-        for count, face_landmarks in enumerate(results.multi_face_landmarks):
-            print(f"    Processing face {count + 1}/{face_count}...")
-
-            try:
+        try:
+            # Process each detected face
+            for count, face_landmarks in enumerate(results.multi_face_landmarks):
+                print(f"    Processing face {count + 1}/{face_count}...")
                 landmarks = face_landmarks.landmark
-
                 # Calculate face scale for debugging
                 face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
                 print(f"      Face scale: {face_scale:.3f}, Size: {face_width}x{face_height}")
-
                 # Extract facial parts
                 face_crop, face_info = self.crop_face_adaptive(image, landmarks, self.FACE)
-                face_image = Image.fromarray(face_crop)
+                rgb_face_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                face_image = Image.fromarray(rgb_face_crop)
                 face_image.save("temp_face.png")
-                # face_score = self.obj_foucs_model.predict_score("temp_face.png")
                 face_score = self.obj_foucs_model_onnx.make_prediction("temp_face.png")
-                print(f"face_score:{face_score}, round:{face_score:.2f}")
-
-                left_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.LEFT_EYE)
-                left_eye_image = Image.fromarray(left_eye_crop)
-                left_eye_image.save("temp_le.png")
-                # left_eye_score = self.obj_foucs_model.predict_score("temp_le.png")
-                left_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_le.png")
-                print(f"left_eye_score:{left_eye_score}, round:{left_eye_score:.2f}")
-
-                right_eye_crop = self.crop_eyes_adaptive(image, landmarks, self.RIGHT_EYE)
-                right_eye_image = Image.fromarray(right_eye_crop)
-                right_eye_image.save("temp_re.png")
-                # right_eye_score = self.obj_foucs_model.predict_score("temp_re.png")
-                right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
-                print(f"right_eye_score:{right_eye_score}, round:{right_eye_score:.2f}")
-
                 head_crop = self.crop_head_adaptive(image, landmarks, self.FACE)
-                head_image = Image.fromarray(head_crop)
+                rgb_head_crop = cv2.cvtColor(head_crop, cv2.COLOR_BGR2RGB)
+                head_image = Image.fromarray(rgb_head_crop)
                 head_image.save("temp_head.png")
-                # head_score = self.obj_foucs_model.predict_score("temp_head.png")
                 head_score = self.obj_foucs_model_onnx.make_prediction("temp_head.png")
-                print(f"head_score:{head_score}, round:{head_score:.2f}")
-
-                # forehead_crop = self.crop_forehead_adaptive(image, landmarks, self.FOREHEAD)
-                # Print face information as per requirements
                 print(f"Face Center: ({face_info['center_x']}, {face_info['center_y']})")
                 print(f"Face Size: {face_info['width']}x{face_info['height']}")
                 print(f"Circumscribing Rectangle:({face_info['rect_left']},{face_info['rect_top']})"
                 f"to ({face_info['rect_right']}, {face_info['rect_bottom']})"
-                 )
-
-                # Save with unique filenames
+                )
                 cv2.imwrite(os.path.join(image_output_dir,
                         f"{face_score:.2f}_face_{count:02d}.png"), face_crop)
-                cv2.imwrite(os.path.join(image_output_dir,
-                        f"{left_eye_score:.2f}_left_eye_{count:02d}.png"), left_eye_crop)
-                cv2.imwrite(os.path.join(image_output_dir,
-                        f"{right_eye_score:.2f}_right_eye_{count:02d}.png"), right_eye_crop)
-                # cv2.imwrite(os.path.join(image_output_dir,
-                #                          f"forehead_{count:02d}.png"), forehead_crop)
                 cv2.imwrite(os.path.join(image_output_dir,
                         f"{head_score:.2f}_head_{count:02d}.png"), head_crop)
 
                 print(f"      ✅ Face {count + 1} processed successfully")
                 successful_faces += 1
+                eye_info = self.obj_eye_calculator.demonstrate_eye_calculator(image_path)
+                face_data = eye_info['faces_data']
+            for face in face_data:
+                left_eye_crop = face['left_eye_crop']
+                rgb_left_eye_crop = cv2.cvtColor(left_eye_crop, cv2.COLOR_BGR2RGB)
+                left_eye_image = Image.fromarray(rgb_left_eye_crop)
+                left_eye_image.save("temp_le.png")
+                left_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_le.png")
 
-            except ValueError as e:
-                print(f"Error processing face {count + 1}: {str(e)}")
-                continue
+                right_eye_crop = face['right_eye_crop']
+                rgb_right_eye_crop = cv2.cvtColor(right_eye_crop, cv2.COLOR_BGR2RGB)
+                right_eye_image = Image.fromarray(rgb_right_eye_crop)
+                right_eye_image.save("temp_re.png")
+                right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
+                cv2.imwrite(os.path.join(image_output_dir,
+                                f"{left_eye_score:.2f}_left_eye_{face['face_number']:02d}.png"), left_eye_crop)
+                cv2.imwrite(os.path.join(image_output_dir,f"{right_eye_score:.2f}_right_eye_{face['face_number']:02d}.png"), right_eye_crop)
 
-        print(f"Output saved to: {image_output_dir}")
-        print(f"Successfully processed: {successful_faces}/{face_count} faces")
-
+            print(f"Output saved to: {image_output_dir}")
+            print(f"Successfully processed: {successful_faces}/{face_count} faces")
+        except ValueError as e:
+            print(f"Error processing face {count + 1}: {str(e)}")
         return successful_faces
 
     def clear_data(self):
