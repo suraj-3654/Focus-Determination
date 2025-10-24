@@ -89,13 +89,8 @@ class AnnotationViewer(QWidget):
         """
         self.input_folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if self.input_folder_path:
-            # for file_name in os.listdir(self.input_folder_path):
-            #     fullpath = os.path.join(self.input_folder_path, file_name)
-            #     if os.path.isfile(fullpath):
-            #         self.file_list.append(fullpath)
             print("Selected folder:", self.input_folder_path)
             self.start_annotation_button.setEnabled(True)
-            # print("Files loaded:", self.file_list)
 
     def clear_folder_data(self):
         """
@@ -113,7 +108,6 @@ class AnnotationViewer(QWidget):
         function to start the annotation with selected images
         """
         self.obj_segment_factil_part.process_folder(self.input_folder_path)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
