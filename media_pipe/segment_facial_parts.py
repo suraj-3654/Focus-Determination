@@ -11,6 +11,7 @@ from PIL import Image
 from focus_model.focus_model import FocusModel
 from focus_model.focus_model_onnx import FocusModelOnnx
 from utility.eye_segmentation_utils import EyeCalculator
+from utility.update_json import JsonHandler
 
 
 class SegmentFacialParts:
@@ -50,7 +51,33 @@ class SegmentFacialParts:
         self.obj_foucs_model = FocusModel()
         self.obj_foucs_model_onnx = FocusModelOnnx()
         self.obj_eye_calculator = EyeCalculator()
+        self.obj_json_handler = JsonHandler()
 
+    def format_data(self, face_number, info, label, focus_score):
+        """
+        Format information in the requested structure (works for both face and head)
+        Args:   
+            face_number: Face number for this face in the group
+            info: info dict from crop_face_adaptive or crop_head_adaptive
+            label: "h_face" or "h_head"
+        Returns:
+            dict: Formatted information
+        """
+        return {
+            "face_number": face_number,
+            "shapes": [
+                {
+                "label": label,
+                "points": [
+                    [info['rect_left'],info['rect_top']] , [info['rect_right'], info['rect_bottom']]
+                    ],
+                    "shape": "rectangle",   
+                    "focus_score": focus_score
+                }
+                ],
+            "shape": "rectangle",   
+            "focus_score": None
+        }
 
     def crop_part(self, image, landmarks, indices, padding=10):
         """
@@ -103,7 +130,19 @@ class SegmentFacialParts:
         if head_right <= head_left:
             head_right = head_left + head_width
 
-        return image[head_top:head_bottom, head_left:head_right]
+        # Store head information for potential future use
+        head_info = {
+            'center_x': face_center_x,
+            'center_y': face_center_y,
+            'width': head_width,
+            'height': head_height,
+            'rect_left': head_left,
+            'rect_top': head_top,
+            'rect_right': head_right,
+            'rect_bottom': head_bottom
+        }
+
+        return image[head_top:head_bottom, head_left:head_right], head_info
 
     def get_face_scale(self, landmarks, image_shape):
         """
@@ -278,7 +317,7 @@ class SegmentFacialParts:
         # Process each image
         for image_path in image_files:
             image_name = os.path.basename(image_path)
-            faces_processed = self.process_single_image(image_path, image_name)
+            faces_processed = self.process_image(image_path, image_name)
 
             if faces_processed > 0:
                 processed_images += 1
@@ -297,7 +336,7 @@ class SegmentFacialParts:
             print("   - Ensure faces are clearly visible")
             print("   - Try different image formats")
 
-    def process_single_image(self, image_path, image_name):
+    def process_image(self, image_path, image_name):
         """
         Process a single image and extract facial features
         """
@@ -328,39 +367,11 @@ class SegmentFacialParts:
 
         successful_faces = 0
         try:
-            # Process each detected face
-            for count, face_landmarks in enumerate(results.multi_face_landmarks):
-                print(f"    Processing face {count + 1}/{face_count}...")
-                landmarks = face_landmarks.landmark
-                # Calculate face scale for debugging
-                face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
-                print(f"      Face scale: {face_scale:.3f}, Size: {face_width}x{face_height}")
-                # Extract facial parts
-                face_crop, face_info = self.crop_face_adaptive(image, landmarks, self.FACE)
-                rgb_face_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
-                face_image = Image.fromarray(rgb_face_crop)
-                face_image.save("temp_face.png")
-                face_score = self.obj_foucs_model_onnx.make_prediction("temp_face.png")
-                head_crop = self.crop_head_adaptive(image, landmarks, self.FACE)
-                rgb_head_crop = cv2.cvtColor(head_crop, cv2.COLOR_BGR2RGB)
-                head_image = Image.fromarray(rgb_head_crop)
-                head_image.save("temp_head.png")
-                head_score = self.obj_foucs_model_onnx.make_prediction("temp_head.png")
-                print(f"Face Center: ({face_info['center_x']}, {face_info['center_y']})")
-                print(f"Face Size: {face_info['width']}x{face_info['height']}")
-                print(f"Circumscribing Rectangle:({face_info['rect_left']},{face_info['rect_top']})"
-                f"to ({face_info['rect_right']}, {face_info['rect_bottom']})"
-                )
-                cv2.imwrite(os.path.join(image_output_dir,
-                        f"{face_score:.2f}_face_{count:02d}.png"), face_crop)
-                cv2.imwrite(os.path.join(image_output_dir,
-                        f"{head_score:.2f}_head_{count:02d}.png"), head_crop)
-
-                print(f"      ✅ Face {count + 1} processed successfully")
-                successful_faces += 1
-                eye_info = self.obj_eye_calculator.demonstrate_eye_calculator(image_path)
-                face_data = eye_info['faces_data']
-            for face in face_data:
+            json_eye_dict = {}
+            focus_scores = {}
+            eye_info = self.obj_eye_calculator.demonstrate_eye_calculator(image_path)
+            face_data = eye_info['faces_data']
+            for face_num, face in enumerate(face_data):
                 left_eye_crop = face['left_eye_crop']
                 rgb_left_eye_crop = cv2.cvtColor(left_eye_crop, cv2.COLOR_BGR2RGB)
                 left_eye_image = Image.fromarray(rgb_left_eye_crop)
@@ -374,7 +385,98 @@ class SegmentFacialParts:
                 right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
                 cv2.imwrite(os.path.join(image_output_dir,
                                 f"{left_eye_score:.2f}_left_eye_{face['face_number']:02d}.png"), left_eye_crop)
-                cv2.imwrite(os.path.join(image_output_dir,f"{right_eye_score:.2f}_right_eye_{face['face_number']:02d}.png"), right_eye_crop)
+                cv2.imwrite(os.path.join(image_output_dir,
+                            f"{right_eye_score:.2f}_right_eye_{face['face_number']:02d}.png"), right_eye_crop)
+                focus_scores[face_num] = {"left_eye_score": left_eye_score}
+                focus_scores[face_num]["right_eye_score"] = right_eye_score
+            face_count = eye_info["total_faces"]
+            for face_num in range(face_count):
+                json_left_eye_info = eye_info["json_eye_info"][face_num]["left_eye"]["shapes"]
+                
+                # Iterate through shapes list to add focus_score
+                for shape in json_left_eye_info:
+                    shape["focus_score"] = focus_scores[face_num]["left_eye_score"]
+
+                json_right_eye_info = eye_info["json_eye_info"][face_num]["right_eye"]["shapes"]
+                
+                # Iterate through shapes list to add focus_score
+                for shape in json_right_eye_info:
+                    shape["focus_score"] = focus_scores[face_num]["right_eye_score"]
+            
+
+
+
+
+                
+                json_eye_dict[face_num] = json_left_eye_info + json_right_eye_info
+
+            # Process each detected face
+            for count, face_landmarks in enumerate(results.multi_face_landmarks):
+                print(f"    Processing face {count + 1}/{face_count}...")
+                landmarks = face_landmarks.landmark
+                # Calculate face scale for debugging
+                face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
+                print(f"      Face scale: {face_scale:.3f}, Size: {face_width}x{face_height}")
+                # Extract facial parts
+                face_crop, face_info = self.crop_face_adaptive(image, landmarks, self.FACE)
+                
+
+                rgb_face_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                face_image = Image.fromarray(rgb_face_crop)
+                face_image.save("temp_face.png")
+                face_score = self.obj_foucs_model_onnx.make_prediction("temp_face.png")
+                json_face_data = self.format_data(count, face_info, "h_face", face_score)
+                head_crop, head_info = self.crop_head_adaptive(image, landmarks, self.FACE)
+
+                
+                rgb_head_crop = cv2.cvtColor(head_crop, cv2.COLOR_BGR2RGB)
+                head_image = Image.fromarray(rgb_head_crop)
+                head_image.save("temp_head.png")
+                head_score = self.obj_foucs_model_onnx.make_prediction("temp_head.png")
+                json_head_data = self.format_data(count, head_info, "h_head", head_score)
+                print(f"Face Center: ({face_info['center_x']}, {face_info['center_y']})")
+                print(f"Face Size: {face_info['width']}x{face_info['height']}")
+                print(f"Circumscribing Rectangle:({face_info['rect_left']},{face_info['rect_top']})"
+                f"to ({face_info['rect_right']}, {face_info['rect_bottom']})"
+                )
+                cv2.imwrite(os.path.join(image_output_dir,
+                        f"{face_score:.2f}_face_{count:02d}.png"), face_crop)
+                cv2.imwrite(os.path.join(image_output_dir,
+                        f"{head_score:.2f}_head_{count:02d}.png"), head_crop)
+
+                print(f"      ✅ Face {count + 1} processed successfully")
+                successful_faces += 1
+                json_dict = {}
+                json_dict["shapes"] = json_eye_dict[count]
+                json_dict["shapes"].extend(json_face_data["shapes"] + json_head_data["shapes"])
+                self.obj_json_handler.update_json(json_dict)
+            # eye_info = self.obj_eye_calculator.demonstrate_eye_calculator(image_path)
+            # face_data = eye_info['faces_data']
+            # for face in face_data:
+            #     left_eye_crop = face['left_eye_crop']
+            #     rgb_left_eye_crop = cv2.cvtColor(left_eye_crop, cv2.COLOR_BGR2RGB)
+            #     left_eye_image = Image.fromarray(rgb_left_eye_crop)
+            #     left_eye_image.save("temp_le.png")
+            #     left_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_le.png")
+
+            #     right_eye_crop = face['right_eye_crop']
+            #     rgb_right_eye_crop = cv2.cvtColor(right_eye_crop, cv2.COLOR_BGR2RGB)
+            #     right_eye_image = Image.fromarray(rgb_right_eye_crop)
+            #     right_eye_image.save("temp_re.png")
+            #     right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
+            #     cv2.imwrite(os.path.join(image_output_dir,
+            #                     f"{left_eye_score:.2f}_left_eye_{face['face_number']:02d}.png"), left_eye_crop)
+            #     cv2.imwrite(os.path.join(image_output_dir,
+            #                 f"{right_eye_score:.2f}_right_eye_{face['face_number']:02d}.png"), right_eye_crop)
+            # face_count = eye_info["total_faces"]
+            # for face_num in range(face_count):
+            #     json_left_eye_info = eye_info["json_eye_info"][face_num]["left_eye"]["shapes"]
+            #     json_right_eye_info = eye_info["json_eye_info"][face_num]["right_eye"]["shapes"]
+            #     if "shapes" in json_head_data and isinstance(json_head_data["shapes"], list):
+            #         json_face_data["shapes"].extend(json_left_eye_info)
+            #         json_face_data["shapes"].extend(json_right_eye_info)
+            # self.obj_json_handler.update_json(json_dict)
+
 
             print(f"Output saved to: {image_output_dir}")
             print(f"Successfully processed: {successful_faces}/{face_count} faces")

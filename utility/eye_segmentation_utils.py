@@ -75,7 +75,7 @@ class EyeCalculator:
         left_eye_x = sum(point[0] for point in left_eye_points) // len(left_eye_points)
         left_eye_y = sum(point[1] for point in left_eye_points) // len(left_eye_points)
 
-        # Right eye center calculation  
+        # Right eye center calculation
         right_eye_points = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in RIGHT_EYE]
         right_eye_x = sum(point[0] for point in right_eye_points) // len(right_eye_points)
         right_eye_y = sum(point[1] for point in right_eye_points) // len(right_eye_points)
@@ -92,8 +92,8 @@ class EyeCalculator:
             float: Euclidean distance between eye centers
         """
         # Pythagorean theorem: c = √(a² + b²)
-        eye_distance = ((right_eye_center[0] - left_eye_center[0])**2 + 
-                       (right_eye_center[1] - left_eye_center[1])**2)**0.5
+        eye_distance = ((right_eye_center[0] - left_eye_center[0])**2 +
+                       (right_eye_center[1] - left_eye_center[1])**2)**0.5 
         return eye_distance
 
     def _calculate_eye_size(self, left_eye_center, right_eye_center):
@@ -149,6 +149,31 @@ class EyeCalculator:
 
         return eye_crop, (top, bottom, left, right)
 
+    def format_data(self, face_number, eye_rect, label):
+        """
+        Format eye information in the requested structure
+        Args:
+            face_number: Face number for this face in the group
+            eye_rect: (top, bottom, left, right) tuple
+            label: "h_l_eye" or "h_r_eye"
+        Returns:
+            dict: Formatted eye information
+        """
+        return {
+
+            "face_number": face_number,
+            "shapes": [
+                {
+                "label": label,
+                "points": [
+                    [eye_rect[2],eye_rect[0]] , [eye_rect[3], eye_rect[1]]
+                    ],
+                "shape": "rectangle",   
+                "focus_score": None
+                }
+                ]
+        }
+
     def calculate_eye_information(self, landmarks, image_shape):
         """
         Calculate complete eye information using special 1/3 distance formula
@@ -202,6 +227,7 @@ class EyeCalculator:
 
         # Process ALL detected faces for group images
         all_faces_data = []
+        faces_data = []
         face_count = len(results.multi_face_landmarks)
 
         print(f"✅ Detected {face_count} face(s) in the image")
@@ -221,6 +247,15 @@ class EyeCalculator:
                                         eye_info['left_eye_center'], eye_info['right_eye_center'])
                 right_eye_crop, right_eye_rect = self.extract_eye_crop(image,
                                         eye_info['right_eye_center'], eye_info['left_eye_center'])
+                # Collect formatted eye data
+                left_eye_formatted = self.format_data(count, left_eye_rect, "h_l_eye")
+                right_eye_formatted = self.format_data(count, right_eye_rect, "h_r_eye")
+                
+                faces_data.append({
+                    "face_number": count,
+                    "left_eye": left_eye_formatted,
+                    "right_eye": right_eye_formatted
+                })
 
                 # Store data for this face
                 face_data = {
@@ -248,7 +283,8 @@ class EyeCalculator:
         return {
             'total_faces': face_count,
             'successful_faces': len(all_faces_data),
-            'faces_data': all_faces_data
+            'faces_data': all_faces_data,
+            'json_eye_info': faces_data
         }
 
     def demonstrate_eye_calculator(self, image_path,
