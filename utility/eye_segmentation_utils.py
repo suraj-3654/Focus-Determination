@@ -6,7 +6,7 @@ import json
 import os
 import cv2
 import mediapipe as mp
-import numpy as np
+from utility.resource_path import resource_path
 
 # Eye landmark indices
 LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154, 155]
@@ -16,12 +16,14 @@ class EyeCalculator:
     """
     Dedicated eye calculation class with precise 1/3 distance formula
     """
-    def __init__(self, config_path="./utility/config.json"):
+    def __init__(self, config_path=None):
         """
         Initialize eye calculator with configuration
         Args:
-            config_path (str): Path to eye configuration file
+            config_path (str): Path to eye configuration file (optional, defaults to bundled config)
         """
+        if config_path is None:
+            config_path = resource_path("utility/config.json")
         self.config = self._load_config(config_path)
         self.eye_mag_factor = self.config.get("eye_magnification", 1.0)
 
@@ -45,17 +47,16 @@ class EyeCalculator:
             try:
                 with open(config_path, 'r') as f:
                     config = json.load(f)
-                print(f"✅ Loaded eye configuration from {config_path}")
                 return config
             except Exception as e:
-                print(f"❌ Error loading eye config: {e}")
-                print("Using default eye configuration")
+                pass
         else:
-            print(f"❌ Eye config file {config_path} not found, using default")
             # Create default config file
-            with open(config_path, 'w') as f:
-                json.dump(default_config, f, indent=2)
-            print(f"✅ Created default eye config file: {config_path}")
+            try:
+                with open(config_path, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+            except:
+                pass
 
         return default_config
 
@@ -230,11 +231,7 @@ class EyeCalculator:
         faces_data = []
         face_count = len(results.multi_face_landmarks)
 
-        print(f"✅ Detected {face_count} face(s) in the image")
-
         for count, face_landmarks in enumerate(results.multi_face_landmarks):
-            print(f"    Processing face {count + 1}/{face_count}...")
-
             try:
                 # Get landmarks for current face
                 landmarks = face_landmarks.landmark
@@ -269,14 +266,7 @@ class EyeCalculator:
 
                 all_faces_data.append(face_data)
 
-                print(f"      ✅ Face {count + 1} processed successfully")
-                print(f"         Left Eye Center: {eye_info['left_eye_center']}")
-                print(f"         Right Eye Center: {eye_info['right_eye_center']}")
-                print(f"         Eye Distance: {eye_info['eye_distance']:.2f} pixels")
-                print(f"         Base Eye Size: {eye_info['base_eye_size']:.2f} pixels")
-
             except Exception as e:
-                print(f"      ❌ Error processing face {count + 1}: {str(e)}")
                 continue
 
         # Return data for all faces
@@ -288,45 +278,14 @@ class EyeCalculator:
         }
 
     def demonstrate_eye_calculator(self, image_path,
-                    config_path="./utility/config.json", save_eyes=True, output_dir="eye_output"):
+                    config_path=None, save_eyes=True, output_dir="eye_output"):
         """
         Demonstrate the eye calculator functionality for multiple faces
         """
-        print(f"\n=== Eye Calculator Demonstration (Multi-Face) ===")
-        print(f"Image: {image_path}")
-        print(f"Configuration: {config_path}")
-        print(f"Save Eyes: {save_eyes}")
-        print(f"Output Directory: {output_dir}")
-
         # Initialize eye calculator
         eye_calc = EyeCalculator(config_path=config_path)
 
         # Process image with eye saving for all faces
         result = eye_calc.process_image_eyes(image_path, save_eyes=save_eyes, output_dir=output_dir)
-
-        if result is None:
-            print("❌ No face detected or image could not be loaded")
-            return
-
-        print(f"\n✅ Processing completed!")
-        print(f"📊 SUMMARY:")
-        print(f"   Total Faces Detected: {result['total_faces']}")
-        print(f"   Successfully Processed: {result['successful_faces']}")
-
-        # Display results for each face
-        for face_data in result['faces_data']:
-            face_num = face_data['face_number']
-            print(f"\n👁️ FACE {face_num + 1} EYE CALCULATION RESULTS:")
-            print(f"   Left Eye Center: {face_data['left_eye_center']}")
-            print(f"   Right Eye Center: {face_data['right_eye_center']}")
-            print(f"   Eye Distance: {face_data['eye_distance']:.2f} pixels")
-            print(f"   Base Eye Size: {face_data['base_eye_size']:.2f} pixels (1/3 of distance)")
-            print(f"   Final Eye Size: {face_data['final_eye_size']:.2f} pixels (with magnification)")
-            print(f"   Half Final Size: {face_data['half_final_size']:.2f} pixels")
-            print(f"   Eye Magnification: {face_data['eye_magnification']}")
-            print(f"   Left Eye Rectangle: {face_data['left_eye_rectangle']}")
-            print(f"   Right Eye Rectangle: {face_data['right_eye_rectangle']}")
-            print(f"   Left Eye Crop Shape: {face_data['left_eye_crop'].shape}")
-            print(f"   Right Eye Crop Shape: {face_data['right_eye_crop'].shape}")
 
         return result

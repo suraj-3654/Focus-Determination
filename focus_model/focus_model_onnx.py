@@ -2,10 +2,18 @@
 Imports for the focus mode onnx file.
 """
 import os
+import sys
 import onnxruntime as ort
 import numpy as np
 import cv2
-from tensorflow.keras.preprocessing import image
+
+# Import resource_path - handle both development and PyInstaller scenarios
+try:
+    from utility.resource_path import resource_path
+except ImportError:
+    # Fallback if package structure is different
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from utility.resource_path import resource_path
 
 class FocusModelOnnx():
     """This class contains the methods for loading and make prdictions 
@@ -13,7 +21,8 @@ class FocusModelOnnx():
     """
 
     def __init__(self):
-        self.model = "./model/focusmodel.onnx"
+        model_path = resource_path("model/focusmodel.onnx")
+        self.model = model_path
         self.session = ort.InferenceSession(self.model)
         # Get input and output names
         self.input_name = self.session.get_inputs()[0].name
@@ -56,8 +65,5 @@ class FocusModelOnnx():
         else:
             input = input_with_batch.astype(np.float32) / 255.0
         predictions = session.run(output_names, {input_name: input})
-        # numpy_array = predictions.numpy()
         focus_score = predictions[0][0][0]
-        print(f"{img}:{focus_score}")
-        print(focus_score)
         return focus_score

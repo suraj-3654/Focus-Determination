@@ -4,13 +4,14 @@ Json file imports
 import os
 import json
 import numpy as np
+from utility.resource_path import resource_path
 
 class JsonHandler:
     """
     Class for handling the json
     """
     def __init__(self):
-        file_path = os.path.join(os.path.dirname(__file__), "face_data.json")
+        file_path = resource_path("utility/face_data.json")
         with open(file_path, "r", encoding="utf-8") as file:
             self.data = json.load(file)
 
@@ -31,26 +32,36 @@ class JsonHandler:
         else:
             return obj
 
-    def update_json(self,update_value, key=None):
+    def update_json(self, update_value, output_path=None, image_info=None, key=None):
         """
         Method to update the json file
+        Args:
+            update_value: Data to add to JSON
+            output_path: Custom path to save JSON file (optional)
+            image_info: Dictionary containing imagePath, imageHeight, imageWidth (optional)
+            key: Key for updating (optional)
         """
         # Convert numpy types to Python native types
         update_value = self.convert_numpy_types(update_value)
-        
+
         if isinstance(self.data, dict):
             for key in self.data:
                 if key == "shapes":
                     self.data[key].extend(update_value["shapes"])
-                # if key == "points":
-                #     self.data[key] = update_value["points"]
-                # if key == "rectangle":
-                #     self.data[key] = update_value["rectangle"]
-                # if key == "Focus score":
-                #     self.data[key] = update_value["focus_score"]
-                # elif isinstance(self.data, list):
-                #     for item in self.data:
-                #         self.update_json(update_value, item)
-        print("Unable to edit the json.")
-        with open("updated_output.json", "w") as file:
+        # Update image metadata if provided
+        if image_info:
+            if "imagePath" in image_info:
+                self.data["imagePath"] = image_info["imagePath"]
+            if "imageHeight" in image_info:
+                self.data["imageHeight"] = image_info["imageHeight"]
+            if "imageWidth" in image_info:
+                self.data["imageWidth"] = image_info["imageWidth"]
+
+        # Determine output path
+        if output_path:
+            json_file_path = os.path.join(output_path, "annotation_data.json")
+        else:
+            json_file_path = "updated_output.json"
+
+        with open(json_file_path, "w") as file:
             json.dump(self.data, file, indent=3)
