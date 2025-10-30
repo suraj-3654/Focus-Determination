@@ -1,4 +1,4 @@
 mediapipe
 PyQt5
 opencv-python
-tensorflow
+onnxruntime

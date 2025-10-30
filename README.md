@@ -1,9 +1,11 @@
 # Focus-Determination
 
 ## Facial Parts Segmentation using MediaPipe
-This repository provides a pipeline for segmenting facial regions such as the left eye, right eye, full face, and forehead using MediaPipe. It supports both single-person and group images.
+This repository provides a pipeline for segmenting facial regions such as the left eye, right eye, full face, and head using MediaPipe. It supports both single-person and group images.
 
 ## 🧰 Environment Setup
+
+> Requirement: Use Python 3.10 (recommended/validated).
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/suraj-3654/Focus-Determination.git
@@ -27,5 +29,5 @@ After completing the mentioned steps you can start the annotation tool by,**pyth
 After launching click on the **select folder** button and click on a folder containing the images.
 Then click on the **start annotation** button to facial parts segmentation.
 
-After successful segmentation, the cropped facial images are saved in a folder named **segmented_images**, using the original image filename, and located in the same directory.
+After successful segmentation, the cropped facial images are saved in a folder named **segmented_images**, located next to your input folder
 
