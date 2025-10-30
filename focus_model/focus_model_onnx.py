@@ -7,11 +7,9 @@ import onnxruntime as ort
 import numpy as np
 import cv2
 
-# Import resource_path - handle both development and PyInstaller scenarios
 try:
     from utility.resource_path import resource_path
 except ImportError:
-    # Fallback if package structure is different
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
     from utility.resource_path import resource_path
 

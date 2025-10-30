@@ -1,7 +1,7 @@
 # Focus-Determination
 
 ## Facial Parts Segmentation using MediaPipe
-This repository provides a pipeline for segmenting facial regions such as the left eye, right eye, full face, and forehead using MediaPipe. It supports both single-person and group images.
+This repository provides a pipeline for segmenting facial regions such as the left eye, right eye, full face, and head using MediaPipe. It supports both single-person and group images.
 
 ## 🧰 Environment Setup
 

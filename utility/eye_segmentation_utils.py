@@ -8,7 +8,6 @@ import cv2
 import mediapipe as mp
 from utility.resource_path import resource_path
 
-# Eye landmark indices
 LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154, 155]
 RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 374, 381]
 
@@ -27,7 +26,6 @@ class EyeCalculator:
         self.config = self._load_config(config_path)
         self.eye_mag_factor = self.config.get("eye_magnification", 1.0)
 
-        # Initialize MediaPipe face mesh
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             static_image_mode=True,
@@ -92,7 +90,6 @@ class EyeCalculator:
         Returns:
             float: Euclidean distance between eye centers
         """
-        # Pythagorean theorem: c = √(a² + b²)
         eye_distance = ((right_eye_center[0] - left_eye_center[0])**2 +
                        (right_eye_center[1] - left_eye_center[1])**2)**0.5 
         return eye_distance
@@ -106,16 +103,12 @@ class EyeCalculator:
         Returns:
             tuple: (base_eye_size, final_eye_size, half_final_size)
         """
-        # Calculate distance between eye centers
         eye_distance = self._calculate_eye_distance(left_eye_center, right_eye_center)
 
-        # Base eye size = 1/3 of distance between eyes (SPECIAL FORMULA)
         base_eye_size = eye_distance / 3
 
-        # Final size with magnification factor
         final_eye_size = base_eye_size * self.eye_mag_factor
 
-        # Half size for circumscribing rectangle
         half_final_size = final_eye_size / 2
 
         return base_eye_size, final_eye_size, half_final_size
@@ -133,19 +126,15 @@ class EyeCalculator:
         """
         h, w = image_array.shape[:2]
 
-        # Calculate eye size using special formula
         base_eye_size, final_eye_size, half_final_size = self._calculate_eye_size(eye_center, other_eye_center)
 
-        # Calculate circumscribing rectangle boundaries
         eye_x, eye_y = eye_center
 
-        # Rectangle extends half_final_size from center
         left = max(int(eye_x - half_final_size), 0)
         right = min(int(eye_x + half_final_size), w)
         top = max(int(eye_y - half_final_size), 0)
         bottom = min(int(eye_y + half_final_size), h)
 
-        # Extract crop
         eye_crop = image_array[top:bottom, left:right]
 
         return eye_crop, (top, bottom, left, right)
@@ -184,14 +173,11 @@ class EyeCalculator:
         Returns:
             dict: Complete eye information
         """
-        # Get eye centers
         left_eye_center, right_eye_center = self._get_eye_centers(landmarks, image_shape)
 
-        # Calculate eye size using special formula
         base_eye_size, final_eye_size, half_final_size = self._calculate_eye_size(left_eye_center,
                                                                                   right_eye_center)
 
-        # Calculate eye distance for verification
         eye_distance = self._calculate_eye_distance(left_eye_center, right_eye_center)
 
         return {
@@ -214,37 +200,30 @@ class EyeCalculator:
         Returns:
             dict: Eye information and crops for all faces
         """
-        # Load image
         image = cv2.imread(image_path)
         if image is None:
             return None
 
-        # Convert to RGB for MediaPipe
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.face_mesh.process(rgb_image)
 
         if not results.multi_face_landmarks:
             return None
 
-        # Process ALL detected faces for group images
         all_faces_data = []
         faces_data = []
         face_count = len(results.multi_face_landmarks)
 
         for count, face_landmarks in enumerate(results.multi_face_landmarks):
             try:
-                # Get landmarks for current face
                 landmarks = face_landmarks.landmark
 
-                # Calculate eye information for this face
                 eye_info = self.calculate_eye_information(landmarks, image.shape)
 
-                # Extract eye crops using special calculation for this face
                 left_eye_crop, left_eye_rect = self.extract_eye_crop(image,
                                         eye_info['left_eye_center'], eye_info['right_eye_center'])
                 right_eye_crop, right_eye_rect = self.extract_eye_crop(image,
                                         eye_info['right_eye_center'], eye_info['left_eye_center'])
-                # Collect formatted eye data
                 left_eye_formatted = self.format_data(count, left_eye_rect, "h_l_eye")
                 right_eye_formatted = self.format_data(count, right_eye_rect, "h_r_eye")
                 
@@ -254,7 +233,6 @@ class EyeCalculator:
                     "right_eye": right_eye_formatted
                 })
 
-                # Store data for this face
                 face_data = {
                     'face_number': count,
                     'left_eye_crop': left_eye_crop,
@@ -269,7 +247,6 @@ class EyeCalculator:
             except Exception as e:
                 continue
 
-        # Return data for all faces
         return {
             'total_faces': face_count,
             'successful_faces': len(all_faces_data),
@@ -282,10 +259,8 @@ class EyeCalculator:
         """
         Demonstrate the eye calculator functionality for multiple faces
         """
-        # Initialize eye calculator
         eye_calc = EyeCalculator(config_path=config_path)
 
-        # Process image with eye saving for all faces
         result = eye_calc.process_image_eyes(image_path, save_eyes=save_eyes, output_dir=output_dir)
 
         return result

@@ -9,23 +9,32 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from PIL import Image
-
 from focus_model.focus_model_onnx import FocusModelOnnx
 from utility.eye_segmentation_utils import EyeCalculator
 from utility.update_json import JsonHandler
 
+# ===== Constants (structure/readability, no behavior change) =====
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+DEFAULT_MAX_NUM_FACES = 20
+MIN_DETECTION_CONFIDENCE = 0.3
+MIN_TRACKING_CONFIDENCE = 0.3
+EYE_PADDING_RATIO = 0.08  # 8% of face width
+EYE_PADDING_MIN = 10
+EYE_PADDING_MAX = 30
+
+
+
 
 class SegmentFacialParts:
     """
-    Class contains the methods to segment the facial parts face, eyes, forehead.
+    Class contains the methods to segment facial parts (eyes, face, head).
     """
     _instance = None
 
     LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154, 155]
     RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 374, 381]
     FACE = list(range(0, 468))
-    FOREHEAD = [10, 151, 9, 8, 107, 55, 65, 52, 53, 46, 70, 63, 105,
-                66, 69, 108, 104, 103, 67, 109]
+
 
     @classmethod
     def get_instance(cls):
@@ -42,12 +51,12 @@ class SegmentFacialParts:
         """
         mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = mp_face_mesh.FaceMesh(
-	    static_image_mode=True,
-	    max_num_faces=20,  # Increase limit
-	    refine_landmarks=True,
-	    min_detection_confidence=0.3,  # Lower threshold
-	    min_tracking_confidence=0.3
-	    )
+            static_image_mode=True,
+            max_num_faces=DEFAULT_MAX_NUM_FACES,
+            refine_landmarks=True,
+            min_detection_confidence=MIN_DETECTION_CONFIDENCE,
+            min_tracking_confidence=MIN_TRACKING_CONFIDENCE
+        )
         self.output_dir = None  # Will be set relative to input folder
         self.temp_dir = None  # Will be set when processing starts
         self.obj_foucs_model_onnx = FocusModelOnnx()
@@ -82,7 +91,7 @@ class SegmentFacialParts:
 
     def crop_part(self, image, landmarks, indices, padding=10):
         """
-        Segments key facial regions such as eyes, forehead, and full face 
+        Segments key facial regions such as eyes,head and full face 
         from an input image using MediaPipe landmarks.
         """
         h, w, _ = image.shape
@@ -104,52 +113,52 @@ class SegmentFacialParts:
         """
         # Get image dimensions
         height, width = image.shape[:2]
-        
+
         # Calculate font scale based on image size - increase for better visibility
         font_scale = min(width, height) / 300.0  # Increased from 500.0 to 300.0
         font_scale = max(0.4, min(1.2, font_scale))  # Increased max from 0.8 to 1.2, min from 0.25 to 0.4
-        
+
         # Font settings
         font = cv2.FONT_HERSHEY_SIMPLEX
         thickness = max(1, int(font_scale * 1.5))  # Reduced back to moderate boldness
-        
+
         # Text to display
         text = f"{label}: {focus_score:.2f}"
-        
+
         # Get text size for calculating padding
         (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-        
+
         # Calculate padding based on text size and image size - be VERY generous
         # Ensure padding is at least 50% of text height, but not less than 30 pixels
         text_padding = max(30, int(text_height * 0.5))  # Increased from 20 to 30, from 0.3 to 0.5
         side_padding = max(10, int(text_width * 0.1))  # Reduced from 25 to 10, from 0.4 to 0.1 for better left alignment
-        
+
         # Calculate new image dimensions with padding - ensure width accommodates text
         new_height = height + text_padding + text_height + text_padding
         new_width = max(width, text_width + (side_padding * 2))  # Ensure width fits text
-        
+
         # Create new image with padding (white background)
         padded_image = np.ones((new_height, new_width, 3), dtype=np.uint8) * 255
-        
+
         # Place original image in the center-bottom of padded image
         start_y = text_padding + text_height + text_padding
         start_x = (new_width - width) // 2  # Center horizontally
         padded_image[start_y:start_y + height, start_x:start_x + width] = image
-        
+
         # Position text in the top padding area - COMPLETELY LEFT ALIGNED
         text_x = 5  # Minimal padding from left edge for true left alignment
         text_y = text_padding + text_height
-        
+
         # Draw small black rectangle only around the text
         cv2.rectangle(padded_image, 
                      (text_x - 5, text_y - text_height - 5),  # Small padding around text
                      (text_x + text_width + 5, text_y + baseline + 5),  # Small padding around text
                      (0, 0, 0), -1)  # Black background
-        
+
         # Draw text
         cv2.putText(padded_image, text, (text_x, text_y), 
                    font, font_scale, (255, 255, 255), thickness)  # White text
-        
+
         return padded_image
 
     def crop_head_adaptive(self, image, landmarks, face_indices):
@@ -273,62 +282,6 @@ class SegmentFacialParts:
 
         return image[rect_top:rect_bottom, rect_left:rect_right], face_info
 
-
-    def crop_forehead_adaptive(self, image, landmarks, indices):
-        """
-        Adaptive forehead cropping that works for different image sizes and subject scales
-        """
-        h, w, _ = image.shape
-
-        # Calculate face scale and dimensions
-        face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
-
-        # Get forehead points
-        points = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in indices]
-        x_coords, y_coords = zip(*points)
-
-        # Get the topmost point for forehead top
-        forehead_top = min(y_coords)
-        forehead_left = min(x_coords)
-        forehead_right = max(x_coords)
-
-        # Find eyebrow landmarks to limit the bottom of forehead
-        eyebrow_landmarks = [70, 63, 105, 66, 55, 65, 52, 53, 46, 107, 55, 8, 9, 10, 151]
-        eyebrow_y_values = [int(landmarks[i].y * h)
-                            for i in eyebrow_landmarks if i < len(landmarks)]
-        eyebrow_y = min(eyebrow_y_values) if eyebrow_y_values else min(y_coords)
-
-        # Calculate adaptive padding based on face scale
-        # For larger faces (closer to camera), use smaller padding
-        # For smaller faces (farther from camera), use larger padding
-        base_padding = int(face_width * 0.1)  # 10% of face width
-        min_padding = 10
-        max_padding = 50
-
-        adaptive_padding = max(min_padding, min(max_padding, base_padding))
-
-        # Calculate adaptive extensions based on face scale - increased for complete forehead
-        top_extension = int(face_height * 0.25)  # 25% of face height - more hair coverage
-        bottom_extension = int(face_height * 0.25) #25% of face height-extend well into eyebrow area
-        side_extension = int(face_width * 0.3)  # 30% of face width - more side coverage
-        right_extension = int(face_width * 0.4)  # 40% of face width - more right side coverage
-
-        # Define forehead boundaries with adaptive values
-        y_min = max(forehead_top - adaptive_padding - top_extension, 0)
-        y_max = max(eyebrow_y + bottom_extension, y_min + int(face_height * 0.3))
-        x_min = max(forehead_left - adaptive_padding - side_extension, 0)
-        x_max = min(forehead_right + adaptive_padding + right_extension, w)
-
-        # Ensure we have a valid crop
-        if y_max <= y_min:
-            y_max = y_min + int(face_height * 0.3)
-
-        # Additional safety check: allow much more area below eyebrows for complete forehead
-        max_bottom = eyebrow_y + int(face_height * 0.35)  # Max 35% of face height below eyebrows
-        y_max = min(y_max, max_bottom)
-
-        return image[y_min:y_max, x_min:x_max]
-
     def crop_eyes_adaptive(self, image, landmarks, eye_indices):
         """
         Adaptive eye cropping based on face scale
@@ -337,8 +290,8 @@ class SegmentFacialParts:
         face_scale, face_width, face_height = self.get_face_scale(landmarks, image.shape)
 
         # Calculate adaptive padding for eyes
-        eye_padding = int(face_width * 0.08)  # 8% of face width
-        eye_padding = max(10, min(30, eye_padding))  # Between 10 and 30 pixels
+        eye_padding = int(face_width * EYE_PADDING_RATIO)
+        eye_padding = max(EYE_PADDING_MIN, min(EYE_PADDING_MAX, eye_padding))
 
         return self.crop_part(image, landmarks, eye_indices, padding=eye_padding)
 
@@ -352,12 +305,10 @@ class SegmentFacialParts:
             return
 
         # Get all image files
-        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
         image_files = []
-
         for file in glob.iglob(os.path.join(folder_path, '*')):
             ext = os.path.splitext(file)[1].lower()
-            if ext in image_extensions:
+            if ext in IMAGE_EXTENSIONS:
                 image_files.append(file)
 
 
@@ -484,22 +435,17 @@ class SegmentFacialParts:
             face_count = eye_info["total_faces"]
             for face_num in range(face_count):
                 json_left_eye_info = eye_info["json_eye_info"][face_num]["left_eye"]["shapes"]
-                
+
                 # Iterate through shapes list to add focus_score
                 for shape in json_left_eye_info:
                     shape["focus_score"] = focus_scores[face_num]["left_eye_score"]
 
                 json_right_eye_info = eye_info["json_eye_info"][face_num]["right_eye"]["shapes"]
-                
+
                 # Iterate through shapes list to add focus_score
                 for shape in json_right_eye_info:
                     shape["focus_score"] = focus_scores[face_num]["right_eye_score"]
-            
 
-
-
-
-                
                 json_eye_dict[face_num] = json_left_eye_info + json_right_eye_info
 
             # Process each detected face
@@ -522,14 +468,14 @@ class SegmentFacialParts:
                 head_image.save(temp_head_path)
                 head_score = self.obj_foucs_model_onnx.make_prediction(temp_head_path)
                 json_head_data = self.format_data(count, head_info, "h_head", head_score)
-                
+
                 # Add annotations and save face/head images
                 face_annotated = self.add_focus_score_annotation(face_crop, face_score, "Face")
                 head_annotated = self.add_focus_score_annotation(head_crop, head_score, "Head")
-                
+
                 # Get filename without extension
                 filename_base = os.path.splitext(image_name)[0]
-                
+
                 # Save with new naming format
                 cv2.imwrite(os.path.join(image_output_dir,
                         f"{filename_base}_{face_info['rect_top']}_{face_info['rect_left']}_{face_info['width']}_{face_info['height']}_{face_score:.2f}_f_{count:02d}.png"), face_annotated)
@@ -539,43 +485,15 @@ class SegmentFacialParts:
                 json_dict = {}
                 json_dict["shapes"] = json_eye_dict[count]
                 json_dict["shapes"].extend(json_face_data["shapes"] + json_head_data["shapes"])
-                
+
                 # Prepare image metadata for JSON
                 image_info = {
                     "imagePath": image_path,
                     "imageHeight": image_height,
                     "imageWidth": image_width
                 }
-                
+
                 image_json_handler.update_json(json_dict, output_path=image_output_dir, image_info=image_info)
-            # eye_info = self.obj_eye_calculator.demonstrate_eye_calculator(image_path)
-            # face_data = eye_info['faces_data']
-            # for face in face_data:
-            #     left_eye_crop = face['left_eye_crop']
-            #     rgb_left_eye_crop = cv2.cvtColor(left_eye_crop, cv2.COLOR_BGR2RGB)
-            #     left_eye_image = Image.fromarray(rgb_left_eye_crop)
-            #     left_eye_image.save("temp_le.png")
-            #     left_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_le.png")
-
-            #     right_eye_crop = face['right_eye_crop']
-            #     rgb_right_eye_crop = cv2.cvtColor(right_eye_crop, cv2.COLOR_BGR2RGB)
-            #     right_eye_image = Image.fromarray(rgb_right_eye_crop)
-            #     right_eye_image.save("temp_re.png")
-            #     right_eye_score = self.obj_foucs_model_onnx.make_prediction("temp_re.png")
-            #     cv2.imwrite(os.path.join(image_output_dir,
-            #                     f"{left_eye_score:.2f}_left_eye_{face['face_number']:02d}.png"), left_eye_crop)
-            #     cv2.imwrite(os.path.join(image_output_dir,
-            #                 f"{right_eye_score:.2f}_right_eye_{face['face_number']:02d}.png"), right_eye_crop)
-            # face_count = eye_info["total_faces"]
-            # for face_num in range(face_count):
-            #     json_left_eye_info = eye_info["json_eye_info"][face_num]["left_eye"]["shapes"]
-            #     json_right_eye_info = eye_info["json_eye_info"][face_num]["right_eye"]["shapes"]
-            #     if "shapes" in json_head_data and isinstance(json_head_data["shapes"], list):
-            #         json_face_data["shapes"].extend(json_left_eye_info)
-            #         json_face_data["shapes"].extend(json_right_eye_info)
-            # self.obj_json_handler.update_json(json_dict)
-
-
             print(f"Saved to: {image_output_dir}, {successful_faces}/{face_count} faces")
         except ValueError as e:
             print(f"Error processing face {count + 1}: {str(e)}")
