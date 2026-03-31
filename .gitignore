@@ -29,6 +29,7 @@ MANIFEST
 # Python virtual environment
 focus_venv/
 .focus_venv/
+env_new
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
